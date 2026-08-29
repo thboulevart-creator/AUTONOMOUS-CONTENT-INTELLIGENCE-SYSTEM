@@ -1,7 +1,7 @@
 # Autonomous Content Intelligence System
 ## Logical Data Schema V0.1 — AUDIT CANDIDATE
 
-**Status:** AUDIT CANDIDATE — NOT LOCKED  
+**Status:** AUDIT CANDIDATE — CORRECTED AFTER ADVERSARIAL AUDIT  
 **Version:** V0.1  
 **Semantic contract:** Information Model V0.1 — LOCKED  
 **Purpose:** Concrete logical representation of the locked Information Model, independent of a final database engine.
@@ -18,6 +18,7 @@
 6. Timestamps are stored as timezone-aware timestamps.
 7. JSON is permitted for payloads whose internal structure is intentionally extensible, but normative identifiers and relationships are relational and queryable.
 8. The schema does not encode causality automatically.
+9. Normative invariants are specified at the logical-schema level; engine-specific SQL syntax is deferred to the physical schema.
 
 ---
 
@@ -144,7 +145,7 @@ Trend may also be implemented later as a derived view without changing the Infor
 - `updated_at TIMESTAMPTZ NOT NULL`
 - `deleted_at TIMESTAMPTZ NULL`
 
-Constraint: if `variant_id` is non-null, its `concept_id` must equal `content.concept_id` when `concept_id` is present. Content may exist without Concept/Variant for exploration.
+Logical constraint: if `variant_id` is non-null, its `concept_id` must equal `content.concept_id`. Content may exist without Concept/Variant for exploration.
 
 ### 2.12 platform_version
 - `id UUID PK`
@@ -166,7 +167,7 @@ Constraint: if `variant_id` is non-null, its `concept_id` must equal `content.co
 - `updated_at TIMESTAMPTZ NOT NULL`
 - `deleted_at TIMESTAMPTZ NULL`
 
-Constraint: publication.account_id.platform_id must equal platform_version.platform_id.
+Logical constraint: `publication.account_id.platform_id = platform_version.platform_id`.
 
 ### 2.14 performance
 Performance is append-only at snapshot level.
@@ -178,6 +179,8 @@ Performance is append-only at snapshot level.
 - `measurement_window JSONB NULL`
 - `source_ref TEXT NULL`
 - `created_at TIMESTAMPTZ NOT NULL`
+
+Logical uniqueness: `(publication_id, observed_at)` is unique in V0.1. If a future implementation requires multiple measurements at the same instant, `measurement_window` must become part of the declared uniqueness key through an explicit schema change.
 
 Invariant: existing Performance rows are never overwritten to represent a later observation. New observations create new rows.
 
@@ -201,12 +204,17 @@ Baseline and interventions are represented through typed experiment arms, not a 
 - `label TEXT NULL`
 - `created_at TIMESTAMPTZ NOT NULL`
 
-Constraints:
+Logical constraints:
 - exactly one of `variant_id` or `content_id` must be non-null;
+- `arm_type` is exactly one of `baseline` or `intervention`;
 - each controlled Experiment has exactly one baseline arm;
 - each controlled Experiment has at least one intervention arm;
 - exploratory Experiments may have zero baseline arms;
-- an arm cannot simultaneously be baseline and intervention.
+- no arm can represent both baseline and intervention.
+
+Declarative enforcement target:
+- `CHECK ((variant_id IS NOT NULL) <> (content_id IS NOT NULL))`;
+- controlled/exploratory arm-count constraints enforced by a deferred constraint/trigger or equivalent transaction-level integrity mechanism in the physical schema.
 
 ### 2.17 learning
 - `id UUID PK`
@@ -230,7 +238,7 @@ Structured provenance for Learning.
 - `role TEXT NULL`
 - `created_at TIMESTAMPTZ NOT NULL`
 
-`source_type + source_id` is a typed logical reference. Application/service validation must ensure the referenced record exists in the declared source table; a database-native FK cannot be used across heterogeneous tables without introducing separate junction tables.
+`source_type + source_id` is a typed logical reference. Application/service validation must ensure that the referenced record exists in the declared source table. Native FK enforcement across heterogeneous source tables is intentionally deferred; separate typed junctions would add complexity without changing the Information Model.
 
 ### 2.19 learning_status_history
 - `id UUID PK`
@@ -251,6 +259,8 @@ Structured provenance for Learning.
 ---
 
 ## 3. Junction tables / relations
+
+All N:M relations are explicit junction tables. Junction-table FKs are mandatory unless explicitly marked nullable.
 
 ### evidence_learning
 - `evidence_id UUID FK -> evidence.id`
@@ -305,7 +315,11 @@ Structured provenance for Learning.
 - `arm_id UUID NULL FK -> experiment_arm.id`
 - PK (`experiment_id`, `performance_id`, `arm_id`)
 
-Constraint: when `arm_id` is present, `arm_id.experiment_id = experiment_id`.
+Rules:
+- an `arm_id` is **required** when the Performance is being used as an experimental result attributable to a specific arm;
+- `arm_id` may be NULL only for experiment-level Performance that is intentionally not attributable to a single arm (for example an exploratory experiment-level outcome);
+- when `arm_id` is present, `arm_id.experiment_id = experiment_id`;
+- the physical schema must enforce the cross-reference with a composite FK or equivalent constraint.
 
 ### performance_learning
 - `performance_id UUID FK -> performance.id`
@@ -370,34 +384,47 @@ Constraint: when `arm_id` is present, `arm_id.experiment_id = experiment_id`.
 1. `experiment_type = controlled` => exactly one baseline arm and >=1 intervention arm.
 2. `experiment_type = exploratory` => baseline arm is optional.
 3. Every arm references exactly one Variant or Content.
-4. Every Experiment/Performance association must be attributable to the Experiment and, where experimental attribution is required, to an arm.
+4. An experimental Performance attributed to a specific arm must reference that arm through `experiment_performance.arm_id`.
+5. If `experiment_performance.arm_id` is non-null, its `experiment_id` must equal the junction's `experiment_id`.
 
 ### Publication / Platform
-5. Publication Account and Platform Version must belong to the same Platform.
-6. Performance is always attached to exactly one Publication.
-7. Performance observations are append-only; later observations never overwrite earlier snapshots.
+6. Publication Account and Platform Version must belong to the same Platform.
+7. Performance is always attached to exactly one Publication.
+8. Performance observations are append-only and uniquely identified per Publication by `observed_at` in V0.1.
 
 ### Learning
-8. Learning must have at least one structured provenance source.
-9. Learning status is enumerated and status changes are recorded in `learning_status_history`.
-10. Learning provenance does not imply causality.
-11. A causal claim requires appropriate experimental evidence; schema relationships alone never upgrade an association to causality.
+9. Learning must have at least one structured provenance source before it is considered valid.
+10. Learning status is enumerated and status changes are recorded in `learning_status_history`.
+11. Learning provenance does not imply causality.
+12. A causal claim requires appropriate experimental evidence; schema relationships alone never upgrade an association to causality.
 
 ### Provenance / deletion
-12. Provenance-bearing rows are soft-deleted rather than destructively cascaded.
-13. Foreign-key relationships to historical evidence, performance, experiment and learning records must remain resolvable.
+13. Provenance-bearing rows are soft-deleted rather than destructively cascaded.
+14. Foreign-key relationships to historical evidence, performance, experiment and learning records must remain resolvable.
 
 ### Context
-14. No generic `context` table exists.
-15. Platform, Account and Audience are explicit dimensions. Temporal validity is represented by timestamps/validity fields.
+15. No generic `context` table exists.
+16. Platform, Account and Audience are explicit dimensions. Temporal validity is represented by timestamps/validity fields.
 
 ### Cross-platform analysis
-16. Performance remains attached to Publication -> Platform Version -> Platform and cannot be detached from that context.
-17. Cross-platform aggregation is an analysis/query decision, not a loss of source context.
+17. Performance remains attached to Publication -> Platform Version -> Platform and cannot be detached from that context.
+18. Cross-platform aggregation is an analysis/query decision, not a loss of source context.
 
 ---
 
-## 5. Deliberate implementation boundaries
+## 5. Adversarial-audit corrections incorporated
+
+The following three MUST FIX items from the second Grok adversarial audit are incorporated in this candidate without changing the Information Model:
+
+1. **Experiment arm integrity:** explicit XOR constraint for `variant_id` / `content_id`, explicit `arm_type`, and explicit transaction-level enforcement target for exactly one baseline and at least one intervention on controlled Experiments.
+2. **Experiment ↔ Performance attribution:** `experiment_performance.arm_id` semantics are now explicit; arm attribution is mandatory whenever a result is claimed for a specific experimental arm, with cross-experiment consistency required.
+3. **Performance snapshots:** `(publication_id, observed_at)` is explicitly unique in V0.1 and Performance remains append-only.
+
+No Information Model change is introduced by these corrections.
+
+---
+
+## 6. Deliberate implementation boundaries
 
 The following are intentionally not separate first-class tables in V0.1:
 
@@ -420,14 +447,14 @@ JSONB is used only where the structure is extensible or payload-like. Core seman
 
 ---
 
-## 6. Schema status
+## 7. Schema status
 
-This is the **concrete audit candidate** for Logical Data Schema V0.1.
+This is the **corrected concrete audit candidate** for Logical Data Schema V0.1.
 
 It is subordinate to and must remain semantically faithful to:
 
 `docs/information-model/V0.1/INFORMATION-MODEL-V0.1.md`
 
-The Information Model is LOCKED. Any issue found here that cannot be resolved without changing object meaning, relationship semantics or locked invariants must be raised as an explicit Information Model Change Request rather than silently changing the model.
+**Next gate:** adversarial re-audit of this concrete candidate, focused specifically on the three incorporated fixes and on whether any correction accidentally changes the locked Information Model.
 
-**Current status: NOT LOCKED — awaiting adversarial audit.**
+**Not locked yet.**
