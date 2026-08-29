@@ -1,10 +1,11 @@
 # Autonomous Content Intelligence System
-## Logical Data Schema V0.1 — AUDIT CANDIDATE
+## Logical Data Schema V0.1 — LOCKED
 
-**Status:** AUDIT CANDIDATE — CORRECTED AFTER ADVERSARIAL AUDIT  
+**Status:** LOCKED  
 **Version:** V0.1  
-**Semantic contract:** Information Model V0.1 — LOCKED  
-**Purpose:** Concrete logical representation of the locked Information Model, independent of a final database engine.
+**Semantic authority:** [Information Model V0.1](../../information-model/V0.1/INFORMATION-MODEL-V0.1.md) — LOCKED  
+**Operational authority:** [Operational Specification V0.1](../../operational-specification/V0.1/OPERATIONAL-SPECIFICATION-V0.1.md) — LOCKED  
+**Purpose:** Concrete logical representation of the locked Information Model and the locked Operational Specification, independent of a final database engine.
 
 ---
 
@@ -37,6 +38,13 @@
 - `deleted_at TIMESTAMPTZ NULL`
 
 Evidence is observation/provenance, not interpretation.
+
+`collection_context` is the designated carrier for operational / provenance metadata related to Evidence, including (when available):
+- `primary_event_identity`
+- `upstream_identity`
+- independence state (`independent` | `dependent` | `unknown`)
+
+These are **not** first-class Information Model entities. They are operational classifications / provenance metadata as defined by the Operational Specification.
 
 ### 2.2 trend
 Optional persisted derived object.
@@ -182,7 +190,7 @@ Performance is append-only at snapshot level.
 
 Logical uniqueness: `(publication_id, observed_at)` is unique in V0.1. If a future implementation requires multiple measurements at the same instant, `measurement_window` must become part of the declared uniqueness key through an explicit schema change.
 
-Invariant: existing Performance rows are never overwritten to represent a later observation. New observations create new rows.
+Invariant: existing Performance rows are never overwritten to represent a later observation. New observations create new rows. Append-only is a normative requirement of this Logical Data Schema and of the Operational Specification.
 
 ### 2.15 experiment
 - `id UUID PK`
@@ -194,6 +202,8 @@ Invariant: existing Performance rows are never overwritten to represent a later 
 - `deleted_at TIMESTAMPTZ NULL`
 
 Baseline and interventions are represented through typed experiment arms, not a polymorphic FK.
+
+`design` is the designated carrier for pre-declared closure criteria and related experimental design metadata. It is operational / provenance metadata, not a first-class Information Model entity.
 
 ### 2.16 experiment_arm
 - `id UUID PK`
@@ -229,6 +239,8 @@ Declarative enforcement target:
 - `updated_at TIMESTAMPTZ NOT NULL`
 - `deleted_at TIMESTAMPTZ NULL`
 
+`conditions` is the designated carrier for contextual conditions and for confounder-check metadata (search perimeter, categories, sources consulted, result status). These are operational / provenance metadata, not first-class Information Model entities.
+
 ### 2.18 learning_provenance
 Structured provenance for Learning.
 - `id UUID PK`
@@ -255,6 +267,8 @@ Structured provenance for Learning.
 - `created_at TIMESTAMPTZ NOT NULL`
 - `updated_at TIMESTAMPTZ NOT NULL`
 - `deleted_at TIMESTAMPTZ NULL`
+
+`decision_type` and `rationale` (or associated metadata) are the designated carriers for exploration / exploitation classification and materiality justification. These are operational classifications / provenance metadata, not first-class Information Model entities.
 
 ---
 
@@ -414,7 +428,7 @@ Rules:
 
 ## 5. Adversarial-audit corrections incorporated
 
-The following three MUST FIX items from the second Grok adversarial audit are incorporated in this candidate without changing the Information Model:
+The following three MUST FIX items from the second Grok adversarial audit are incorporated without changing the Information Model:
 
 1. **Experiment arm integrity:** explicit XOR constraint for `variant_id` / `content_id`, explicit `arm_type`, and explicit transaction-level enforcement target for exactly one baseline and at least one intervention on controlled Experiments.
 2. **Experiment ↔ Performance attribution:** `experiment_performance.arm_id` semantics are now explicit; arm attribution is mandatory whenever a result is claimed for a specific experimental arm, with cross-experiment consistency required.
@@ -442,19 +456,28 @@ The following are intentionally not separate first-class tables in V0.1:
 - Constraint
 - Resource
 - Saturation
+- Independence (as entity)
+- Confounder (as entity)
+- Materiality (as entity)
+- Exploration (as entity)
+
+Independence state, primary_event_identity, upstream_identity, confounder-check metadata, materiality metadata and exploration classification are **operational / provenance metadata carriers**. They are stored in the designated JSONB / text fields already present in this schema. They are **not** first-class Information Model entities.
 
 JSONB is used only where the structure is extensible or payload-like. Core semantics, identifiers, cardinalities and provenance links remain relational.
+
+Enforcement of the Operational Specification gates that operate on these metadata (one-shot prevention, independence computation, structured confounder check, substantive exploration classification, exploration floor, pre-declared closure integrity, contradiction reaction) is the responsibility of application logic, as defined by the locked Operational Specification.
 
 ---
 
 ## 7. Schema status
 
-This is the **corrected concrete audit candidate** for Logical Data Schema V0.1.
+This document is the normative **Logical Data Schema V0.1**.
 
 It is subordinate to and must remain semantically faithful to:
 
-`docs/information-model/V0.1/INFORMATION-MODEL-V0.1.md`
+- `docs/information-model/V0.1/INFORMATION-MODEL-V0.1.md` (LOCKED)
+- `docs/operational-specification/V0.1/OPERATIONAL-SPECIFICATION-V0.1.md` (LOCKED)
 
-**Next gate:** adversarial re-audit of this concrete candidate, focused specifically on the three incorporated fixes and on whether any correction accidentally changes the locked Information Model.
+**Logical Data Schema V0.1 is LOCKED.**
 
-**Not locked yet.**
+Any structural, semantic or cardinality modification requires an explicit new version decision. Silent changes to V0.1 are forbidden.

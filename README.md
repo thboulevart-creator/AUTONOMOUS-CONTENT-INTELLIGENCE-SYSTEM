@@ -5,13 +5,14 @@ Autonomous system for discovering, modeling, testing, learning and exploiting co
 ## Current status
 
 **Information Model V0.1: LOCKED**  
-**Operational Specification V0.1: LOCKED**
+**Operational Specification V0.1: LOCKED**  
+**Logical Data Schema V0.1: LOCKED**
 
-The project is now moving to the next layer: **Logical Data Schema V0.1** (adversarial audit in progress).
+The three normative layers of V0.1 are now complete and locked.
 
 The Information Model is the semantic contract.  
 The Operational Specification defines the executable operational rules subordinate to that contract.  
-The data schema must implement both without silently changing their meaning.
+The Logical Data Schema is the concrete representation of both.
 
 ## Normative hierarchy
 
@@ -20,7 +21,7 @@ Information Model V0.1          (LOCKED — semantic authority)
         ↓
 Operational Specification V0.1  (LOCKED — operational invariants)
         ↓
-Logical Data Schema V0.1        (concrete representation)
+Logical Data Schema V0.1        (LOCKED — concrete representation)
 ```
 
 This hierarchy is purely documentary. The system itself remains a **path-dependent graph**, never a mandatory linear pipeline.
@@ -35,6 +36,7 @@ docs/
 │       ├── INFORMATION-MODEL-V0.1.md
 │       └── DECISIONS.md
 ├── operational-specification/
+│   ├── README.md
 │   └── V0.1/
 │       └── OPERATIONAL-SPECIFICATION-V0.1.md
 ├── data-schema/
@@ -47,4 +49,4 @@ docs/
 
 ## Versioning rule
 
-Semantic changes to the Information Model or Operational Specification require an explicit version decision. Schema-level implementation details may evolve within the schema layer as long as they remain faithful to the locked higher layers.
+Semantic or structural changes to any of the three locked V0.1 layers require an explicit new version decision. Implementation details (Policy values, application logic, physical database) may evolve without changing the locked documents.
