@@ -76,6 +76,8 @@ docs/information-model/V0.1/
 docs/operational-specification/V0.1/
 docs/data-schema/V0.1/
 
+docs/logical-data-schema/V0.1/   # historical/parallel schema documentation; not authority over the LOCKED schema
+
 src/domain/
 src/persistence/
 ```
@@ -161,15 +163,15 @@ The adversarial audit produces four actual architectural workstreams.
 
 ## 5.1 Problem
 
-The repository already contains domain gates.
+The repository already contains domain gates implementing the current operational invariants.
 
 The problem is not the absence of gates.
 
-The problem is that the future application layer must guarantee that workflows cannot simply execute around them.
+The problem is that the future application layer must guarantee that workflows cannot simply execute around the **applicable** gate.
 
 Therefore:
 
-> Domain Gates are domain authorities; Application Services are responsible for invoking them at the correct workflow boundaries.
+> Domain Gates are domain authorities; Application Services are responsible for invoking the applicable existing gate at the correct workflow boundary.
 
 ## 5.2 Responsibility
 
@@ -177,11 +179,12 @@ The application layer is responsible for:
 
 - receiving an application command;
 - loading the relevant domain state;
-- invoking the applicable domain gate;
-- refusing execution when the gate fails;
+- determining which existing domain invariant(s) apply to the operation;
+- invoking the applicable domain gate(s);
+- refusing execution when a required gate fails;
 - performing the authorized transition;
 - persisting the resulting state;
-- recording the execution/provenance.
+- recording execution/provenance where applicable.
 
 ## 5.3 Boundary
 
@@ -202,7 +205,9 @@ Correct:
 ```text
 Application Service
         ↓
-Existing Domain Gate
+identify applicable invariant(s)
+        ↓
+Existing Domain Gate(s)
         ↓
 PASS / FAIL
         ↓
@@ -211,32 +216,22 @@ authorized execution
 
 ## 5.4 Required workflow principle
 
-Any application workflow that causes a domain-significant state transition must have an explicit gate checkpoint.
+Any application workflow that causes a domain-significant state transition must invoke the **applicable existing domain validation** before that transition is committed.
+
+This does **not** mean that every transition has a dedicated gate, nor that a mandatory linear lifecycle exists. The current gate set corresponds to specific Operational Specification invariants and must be mapped to application commands during the contract-to-application mapping phase.
 
 Conceptually:
 
 ```text
-Decision
-   ↓
-[Gate]
-   ↓
-Production
-   ↓
-[Gate]
-   ↓
-Content
-   ↓
-[Gate]
-   ↓
-Publication
-   ↓
-[Gate]
-   ↓
-Performance
-   ↓
-[Gate]
-   ↓
-Learning
+Application command
+       ↓
+identify applicable INV(s)
+       ↓
+existing Domain Gate(s)
+       ↓
+PASS / FAIL
+       ↓
+authorized operation
 ```
 
 The exact mapping between transitions and existing gates must be established against the Operational Specification before implementation.
@@ -282,7 +277,7 @@ Performance
 Learning
 ```
 
-But the future production pipeline introduces implementation-level events that must remain reconstructable.
+But the future production pipeline introduces implementation-level events that may need to remain reconstructable.
 
 Examples:
 
@@ -300,9 +295,15 @@ Examples:
 
 These must not become a second semantic model.
 
+The Information Model explicitly requires path-dependent traceability: the system records the provenance actually present and must not fabricate a complete chain where no such provenance exists.
+
 ## 6.2 Responsibility
 
-A future provenance mechanism must allow reconstruction of:
+A future **application-level provenance mechanism** must allow reconstruction of implementation provenance where that provenance is actually available and recorded.
+
+For Learning, the application must reuse the LOCKED provenance representation (`learning_provenance` and the designated provenance-bearing fields such as `learning.conditions`) rather than inventing a new domain entity.
+
+Conceptually, where the corresponding links exist:
 
 ```text
 Decision
@@ -330,13 +331,15 @@ Platform Version
 Publication
 ```
 
+This is a reconstruction target, not a guarantee that every execution will contain every link.
+
 ## 6.3 Provenance principle
 
-Every externally generated artifact must have sufficient provenance to answer:
+Every externally generated artifact that the application records as a system artifact must have sufficient available provenance to answer, to the extent technically possible:
 
-> What produced this artifact, using which implementation, under which parameters, and from which upstream decision?
+> What produced this artifact, using which implementation, under which parameters, and from which upstream decision or input?
 
-At minimum:
+At minimum, where applicable and available:
 
 ```text
 provider
@@ -359,6 +362,8 @@ API/version
 fallback_reason
 quality_level
 ```
+
+Absence of a provenance link must be represented as absence/unknown provenance, not inferred or fabricated.
 
 ## 6.4 Metadata boundary
 
@@ -409,7 +414,7 @@ execution timestamp
 technical error
 ```
 
-These may be represented through the existing artifact/provenance mechanisms.
+These belong in the future application provenance mechanism and, where the LOCKED schema already defines a provenance carrier, in that existing representation.
 
 The application must never use metadata to hide domain information that should be modeled explicitly.
 
@@ -495,7 +500,7 @@ novelty
 budget-driven quality changes
 ```
 
-The exact confounder representation must remain compatible with the LOCKED experimental model.
+The exact confounder representation must remain compatible with the LOCKED experimental model. In particular, causal Learning must satisfy the existing Operational Specification confounder-check requirements rather than relying on an informal application-only flag.
 
 ## 7.5 Provider changes
 
@@ -515,7 +520,7 @@ Provider B
 
 must never become invisible.
 
-The system must record:
+The system must record, where applicable:
 
 ```text
 original provider
@@ -525,7 +530,7 @@ timestamp
 impact
 ```
 
-If the provider change compromises experimental validity, the experiment/variant must be marked accordingly using the existing domain semantics.
+If the provider change compromises experimental validity, the experiment/variant must be handled using the existing domain semantics and provenance mechanisms.
 
 The application must not invent a new semantic status merely for convenience.
 
@@ -593,7 +598,7 @@ learn
 
 Publishing is an external side-effect boundary.
 
-A publication may:
+A publication attempt may:
 
 - succeed;
 - fail;
@@ -602,7 +607,9 @@ A publication may:
 - be duplicated;
 - subsequently be removed.
 
-The application must therefore treat publication as a stateful external operation.
+The application must therefore treat the **external publication operation** as a stateful process.
+
+The LOCKED `Publication` entity is not a generic pending-job state: its schema requires `published_at`. Application-level attempt/request state must therefore remain distinct from the semantic `Publication` record.
 
 ## 8.2 Publishing boundary
 
@@ -613,11 +620,13 @@ Content
    ↓
 Platform Version
    ↓
-Publication Request
+Application Publication Intent / Attempt
    ↓
 Platform Adapter
    ↓
 External Platform
+   ↓
+LOCKED Publication record when publication exists
 ```
 
 The domain remains independent of the concrete platform API.
@@ -626,7 +635,7 @@ The domain remains independent of the concrete platform API.
 
 Retries must not accidentally create duplicate publications.
 
-The publishing layer must therefore maintain an idempotency mechanism based on a stable publication identity.
+The publishing layer must therefore maintain an idempotency mechanism based on a stable publication intent/identity.
 
 Conceptually:
 
@@ -638,13 +647,17 @@ Idempotency Key
 Platform Adapter
        ↓
 External Publication
+       ↓
+Publication identity / external reference
 ```
 
-A retry of the same intent must resolve to the existing publication rather than create an unintended second publication.
+A retry of the same intent must resolve to the existing external publication when the platform supports that guarantee, or otherwise reconcile the external result before creating a new semantic `Publication` record.
+
+The idempotency mechanism is application/integration infrastructure, not a new Information Model entity unless a future contract explicitly authorizes one.
 
 ## 8.4 Partial success
 
-The application must distinguish at least:
+The application-level publication attempt mechanism must distinguish operational outcomes such as:
 
 ```text
 pending
@@ -654,9 +667,11 @@ failed
 removed
 ```
 
-provided these states can be represented without contradicting the LOCKED data model.
+These are **application/integration states**, not a new mandatory vocabulary for the LOCKED `Publication` entity.
 
-If the existing schema already provides equivalent semantics, the existing representation must be reused.
+The semantic `Publication` record must only be created/updated in ways permitted by the LOCKED schema. In particular, `published_at` is required, and `external_publication_ref` may carry the platform identity when available.
+
+If the existing schema provides equivalent semantics, the existing representation must be reused.
 
 ## 8.5 Attribution
 
@@ -674,7 +689,7 @@ but:
 what the platform actually received / exposed
 ```
 
-Therefore:
+Therefore, where the external publication exists:
 
 ```text
 Platform Version
@@ -688,13 +703,15 @@ Performance
 
 must remain reconstructable.
 
+A failed attempt with no external publication must not be represented as a successful semantic Publication merely to complete the chain.
+
 ---
 
 # 9. CROSS-WORKSTREAM CONTROL FLOW
 
 The four workstreams must operate together.
 
-A future execution should conceptually resemble:
+The following is a **non-normative example of one possible execution path**, not a required lifecycle. The Information Model and Operational Specification remain graph-oriented and explicitly reject a mandatory linear chain.
 
 ```text
                 ┌──────────────────────┐
@@ -705,7 +722,7 @@ A future execution should conceptually resemble:
                   APPLICATION ORCHESTRATOR
                            │
                            ▼
-                     DOMAIN GATE
+                APPLICABLE DOMAIN GATE(S)
                            │
                            ▼
                   EXPERIMENT / STRATEGY
@@ -742,7 +759,7 @@ A future execution should conceptually resemble:
              PLATFORM VERSION
                     │
                     ▼
-              DOMAIN CHECK
+             PUBLICATION ATTEMPT
                     │
                     ▼
                 PUBLISHING
@@ -754,7 +771,7 @@ A future execution should conceptually resemble:
                 PERFORMANCE
                     │
                     ▼
-             EXPERIMENT CHECK
+             EXPERIMENT / ANALYSIS
                     │
                     ▼
                  LEARNING
@@ -763,9 +780,9 @@ A future execution should conceptually resemble:
               DECISION UPDATE
 ```
 
-This is a target execution model, not a claim that every path must be strictly linear.
+This diagram is illustrative only. Valid execution may start from other graph nodes, omit steps, branch, loop, or terminate without reaching publication, performance, or learning.
 
-The system remains graph-oriented.
+No application service may infer a causal relationship merely because this example path was traversed.
 
 ---
 
@@ -887,6 +904,7 @@ Avatar Strategy
 Provider
 Cost Decision
 Production Plan
+Publication Attempt / Idempotency Key
 ```
 
 unless a future contract version explicitly authorizes them.
@@ -976,7 +994,7 @@ No Cost Controller decision can silently modify an experimental treatment.
 
 ### AC-03
 
-No provider substitution can become invisible in provenance.
+No provider substitution can become invisible in available provenance.
 
 ### AC-04
 
@@ -984,7 +1002,7 @@ Avatar/no-avatar experiments remain attributable to the intended treatment rathe
 
 ### AC-05
 
-A published artifact can be reconstructed from:
+Where the relevant provenance links actually exist, a published artifact can be reconstructed along the recorded path, for example:
 
 ```text
 Decision
@@ -997,9 +1015,11 @@ Decision
 → learning
 ```
 
+The architecture does not require or fabricate a complete chain when the underlying system has no such recorded path.
+
 ### AC-06
 
-A failed or partial publication cannot silently corrupt attribution.
+A failed or partial publication cannot silently corrupt attribution or be represented as a successful semantic Publication without the required publication evidence.
 
 ### AC-07
 
