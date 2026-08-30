@@ -54,10 +54,6 @@ class NoAvatarStrategy(Protocol):
     def execute(self, assigned_control: Any) -> Any: ...
 
 
-class PublicationService(Protocol):
-    def publish(self, publication_request: Any) -> Any: ...
-
-
 class PerformanceIngestion(Protocol):
     def append(self, observation: Any) -> Any: ...
 
