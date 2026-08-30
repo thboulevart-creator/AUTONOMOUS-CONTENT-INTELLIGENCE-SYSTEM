@@ -27,8 +27,17 @@ class EvidenceAdmissionService:
     def admit(self, candidate: dict[str, Any]) -> Any:
         """Validate an Evidence candidate through the domain authority and persist it.
 
-        The candidate is passed unchanged to the persistence port after the gate
-        succeeds. A gate failure propagates and persistence is not attempted.
+        The gate remains authoritative. After it succeeds, the application maps
+        the admitted candidate to the exact persistence-port contract; it does not
+        reinterpret or reimplement the domain admission rules.
         """
         admitted = self._gate.admit(candidate)
-        return self._repository.create(admitted)
+        return self._repository.create(
+            source_type=admitted["source_type"],
+            raw_payload=admitted["raw_payload"],
+            observed_at=admitted["observed_at"],
+            source_ref=admitted["source_ref"],
+            collected_at=admitted.get("collected_at"),
+            collection_context=admitted.get("collection_context"),
+            evidence_id=admitted.get("id"),
+        )
