@@ -2,8 +2,8 @@
 
 **Project:** Autonomous Content Intelligence System  
 **Version:** V0.1-ERRATA  
-**Status:** ARCHITECTURAL CONTRACT — PRE-IMPLEMENTATION  
-**Purpose:** Record and close the interface/documentation corrections identified during skeleton conformance review without changing the Application interface model.
+**Status:** ARCHITECTURAL CONTRACT — PRE-IMPLEMENTATION / CORRECTIVE  
+**Purpose:** Record and close interface/documentation corrections identified during conformance review.
 
 ---
 
@@ -71,26 +71,74 @@ is clarified as:
 
 ```text
 Application skeleton: CREATED
-Application service implementation: NOT STARTED
-Business logic implementation: NOT STARTED
+Application service implementation: STARTED only where explicitly authorized
+Business logic implementation: limited to approved service contracts
 ```
-
-This distinction is documentary only. The existence of the skeleton does not authorize implementation of application logic beyond the approved interface contracts.
 
 ---
 
-# 4. SCOPE CONTROL
+# 4. R-04 — EXPERIMENT STATUS LIFECYCLE CLOSED AS NON-NORMATIVE
+
+The previous Application Interface Specification section defining:
+
+```text
+ExperimentRunner
+    start(experiment_id)
+    execute(experiment_id)
+    evaluate(experiment_id)
+    close(experiment_id)
+```
+
+is superseded by:
+
+```text
+ExperimentRunner Contract V0.1
+```
+
+at:
+
+```text
+docs/target-architecture/V0.1/EXPERIMENT-RUNNER-CONTRACT-V0.1.md
+```
+
+The reason is normative, not stylistic:
+
+- Information Model V0.1 defines no Experiment lifecycle vocabulary;
+- Operational Specification V0.1 defines no Experiment status transition machine;
+- Logical Data Schema V0.1 stores `experiment.status` as open text rather than a lifecycle enum/check;
+- Domain gates, including `ExperimentClosureGate`, do not define status transitions;
+- the existing persistence repository exposes only `create`, `get_by_id`, `add_arm`, and `get_arms`.
+
+Therefore V0.1 MUST NOT invent:
+
+```text
+start
+execute
+complete
+close
+transition_status
+```
+
+as normative Experiment lifecycle operations.
+
+The frozen runner contract is limited to the persistence operations already authorized by the repository boundary and preserves `status` without interpreting it.
+
+`ExperimentClosureGate` remains the sole Domain authority for INV-11 and is not replaced by an Application lifecycle machine.
+
+---
+
+# 5. SCOPE CONTROL
 
 This errata:
 
 - closes the identified R-01 interface discrepancy by reconfirming the schema-compatible Publication persistence boundary;
 - removes the duplicate `PublicationService` interface;
 - corrects the Application implementation-status metadata;
-- does not create application business logic;
-- does not introduce a new domain entity;
+- resolves the Experiment status/lifecycle discrepancy as R-02 of the normative gap review;
+- does not create a new domain entity;
 - does not modify the four workstreams;
 - does not change domain authority;
 - does not change persistence into an orchestration layer;
 - does not modify the three LOCKED contracts.
 
-> **The errata closes the residual skeleton-conformance issues without reopening the architecture or introducing application behavior.**
+> **The errata closes the residual interface discrepancies without reopening the architecture or inventing an Experiment lifecycle that V0.1 does not define.**
