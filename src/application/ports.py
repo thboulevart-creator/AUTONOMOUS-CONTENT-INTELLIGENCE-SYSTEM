@@ -6,6 +6,7 @@ provider, or platform adapter layers. No business logic is implemented here.
 from __future__ import annotations
 
 from typing import Any, Protocol
+from uuid import UUID
 
 
 class DecisionRepositoryPort(Protocol):
@@ -15,7 +16,17 @@ class DecisionRepositoryPort(Protocol):
 
 class EvidenceRepositoryPort(Protocol):
     def get_by_id(self, evidence_id: str) -> Any: ...
-    def create(self, evidence_data: Any) -> Any: ...
+    def create(
+        self,
+        *,
+        source_type: str,
+        raw_payload: Any,
+        observed_at: Any,
+        source_ref: str,
+        collected_at: Any = None,
+        collection_context: Any = None,
+        evidence_id: UUID | None = None,
+    ) -> Any: ...
     def soft_delete(self, evidence_id: str) -> Any: ...
 
 
