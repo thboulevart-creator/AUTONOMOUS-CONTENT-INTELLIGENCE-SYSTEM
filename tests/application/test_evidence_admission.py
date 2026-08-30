@@ -24,7 +24,7 @@ class SpyRepository:
         self.calls: list[dict] = []
         self.result = {"id": "evidence-1"}
 
-    def create(self, evidence_data):
+    def create(self, **evidence_data):
         self.calls.append(evidence_data)
         return self.result
 
@@ -44,7 +44,17 @@ def test_admit_calls_gate_before_persistence_and_returns_repository_result():
 
     assert result == {"id": "evidence-1"}
     assert gate.calls == [candidate]
-    assert repository.calls == [candidate]
+    assert repository.calls == [
+        {
+            "source_type": "social_post",
+            "raw_payload": {"text": "example"},
+            "observed_at": "2026-08-30T12:00:00Z",
+            "source_ref": "source-1",
+            "collected_at": None,
+            "collection_context": None,
+            "evidence_id": None,
+        }
+    ]
 
 
 def test_admit_does_not_persist_when_domain_gate_rejects():
@@ -65,12 +75,15 @@ def test_admit_does_not_persist_when_domain_gate_rejects():
     assert repository.calls == []
 
 
-def test_admit_does_not_reimplement_or_mutate_domain_candidate():
+def test_admit_maps_optional_persistence_fields_without_mutating_candidate():
     candidate = {
+        "id": "evidence-42",
         "source_type": "social_post",
         "source_ref": "source-1",
         "observed_at": "2026-08-30T12:00:00Z",
         "raw_payload": {"text": "example"},
+        "collected_at": "2026-08-30T12:01:00Z",
+        "collection_context": {"collector": "test"},
     }
     admitted = dict(candidate)
     gate = SpyGate(result=admitted)
@@ -79,10 +92,15 @@ def test_admit_does_not_reimplement_or_mutate_domain_candidate():
 
     service.admit(candidate)
 
-    assert repository.calls == [admitted]
-    assert candidate == {
-        "source_type": "social_post",
-        "source_ref": "source-1",
-        "observed_at": "2026-08-30T12:00:00Z",
-        "raw_payload": {"text": "example"},
-    }
+    assert repository.calls == [
+        {
+            "source_type": "social_post",
+            "raw_payload": {"text": "example"},
+            "observed_at": "2026-08-30T12:00:00Z",
+            "source_ref": "source-1",
+            "collected_at": "2026-08-30T12:01:00Z",
+            "collection_context": {"collector": "test"},
+            "evidence_id": "evidence-42",
+        }
+    ]
+    assert candidate == admitted
