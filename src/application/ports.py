@@ -31,10 +31,36 @@ class EvidenceRepositoryPort(Protocol):
 
 
 class ExperimentRepositoryPort(Protocol):
-    def get_by_id(self, experiment_id: str) -> Any: ...
-    def create(self, experiment_data: Any) -> Any: ...
-    def add_arm(self, experiment_id: str, arm_data: Any) -> Any: ...
-    def get_arms(self, experiment_id: str) -> Any: ...
+    """Minimal V0.1 persistence boundary for Experiment.
+
+    V0.1 defines no normative Experiment lifecycle state machine. This port
+    therefore exposes persistence operations only; it does not expose
+    start/complete/close/transition operations.
+    """
+
+    def get_by_id(self, experiment_id: UUID | str) -> Any: ...
+
+    def create(
+        self,
+        *,
+        experiment_type: str,
+        status: str = "draft",
+        design: Any = None,
+        experiment_id: UUID | None = None,
+    ) -> Any: ...
+
+    def add_arm(
+        self,
+        *,
+        experiment_id: UUID | str,
+        arm_type: str,
+        content_id: UUID | str | None = None,
+        variant_id: UUID | str | None = None,
+        label: str | None = None,
+        arm_id: UUID | None = None,
+    ) -> Any: ...
+
+    def get_arms(self, experiment_id: UUID | str) -> Any: ...
 
 
 class PerformanceRepositoryPort(Protocol):
