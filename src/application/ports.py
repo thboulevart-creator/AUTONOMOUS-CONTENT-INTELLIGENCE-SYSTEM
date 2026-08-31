@@ -108,9 +108,9 @@ class ArtifactLineagePort(Protocol):
 class ProvenanceRepositoryPort(Protocol):
     """Minimal V0.1 persistence boundary for technical provenance.
 
-    This port persists provenance information through an existing persistence
-    surface. It does not introduce new domain entities, lifecycle states,
-    normative business rules, or a parallel semantic model.
+    This port persists technical provenance through the dedicated
+    technical_provenance store. It does not introduce new domain entities,
+    lifecycle states, normative business rules, or a parallel semantic model.
 
     The three operations deliberately mirror the three application provenance
     concerns and nothing more:
@@ -118,8 +118,8 @@ class ProvenanceRepositoryPort(Protocol):
       - provider execution metadata;
       - artifact lineage links.
 
-    Implementations decide how these records are stored using the existing
-    persistence model. The port itself does not prescribe new SQL tables.
+    Implementations may use the technical provenance persistence surface;
+    the port does not define its physical schema or implementation strategy.
     """
 
     def record_execution_trace(self, event: Any) -> Any: ...
