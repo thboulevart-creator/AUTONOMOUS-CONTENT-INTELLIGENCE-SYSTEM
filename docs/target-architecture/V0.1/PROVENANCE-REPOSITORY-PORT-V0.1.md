@@ -3,7 +3,7 @@
 **Project:** Autonomous Content Intelligence System  
 **Repository:** `AUTONOMOUS-CONTENT-INTELLIGENCE-SYSTEM`  
 **Version:** V0.1  
-**Status:** ARCHITECTURAL CONTRACT — PRE-IMPLEMENTATION  
+**Status:** LOCKED — ARCHITECTURAL CONTRACT  
 **Scope:** Application → technical provenance persistence boundary  
 **Implementation:** NOT DEFINED BY THIS DOCUMENT
 
@@ -86,13 +86,13 @@ The port contains exactly three persistence capabilities.
 ```text
 ProvenanceRepositoryPort
 
-    append_execution_trace(trace_record)
+    record_execution_trace(event)
         → TraceReference
 
-    record_provider_provenance(provider_record)
+    record_provider_provenance(execution_reference, provider_metadata)
         → ProviderProvenanceReference
 
-    record_artifact_lineage(lineage_record)
+    link_artifact_lineage(parent_reference, child_reference, relationship)
         → LineageReference
 ```
 
@@ -100,15 +100,19 @@ These operations are append/record operations. V0.1 provides no generic update o
 
 A read/query surface is deliberately excluded from the minimal V0.1 port unless a concrete Provenance Service requirement proves it necessary and a subsequent contract revision authorizes it.
 
+The operation names and argument structure above are the normative V0.1 Application port surface and are aligned with the real `src/application/ports.py` interface.
+
 ---
 
-# 6. `append_execution_trace`
+# 6. `record_execution_trace`
 
 ## Purpose
 
 Persist a technical record of an application execution event.
 
 ## Minimum input
+
+The `event` record must be capable of carrying, at minimum:
 
 ```text
 execution_id
@@ -159,8 +163,9 @@ Persist the technical identity and execution details of an external provider inv
 
 ## Minimum input
 
+The `provider_metadata` record must be capable of carrying, at minimum:
+
 ```text
-execution_reference
 provider
 model
 model_version
@@ -169,6 +174,8 @@ input_reference
 output_reference
 execution_status
 ```
+
+The `execution_reference` associates the provider record with the corresponding execution trace.
 
 Where technically available, the record may additionally contain:
 
@@ -213,7 +220,7 @@ Provider provenance MUST NOT:
 
 ---
 
-# 8. `record_artifact_lineage`
+# 8. `link_artifact_lineage`
 
 ## Purpose
 
@@ -225,8 +232,9 @@ Persist an actual technical relationship between artifacts.
 parent_reference
 child_reference
 relationship
-execution_reference
 ```
+
+The linkage may be associated with an execution reference through the technical record context where required; the minimal Python port does not introduce a fourth argument.
 
 ## Output
 
@@ -427,12 +435,12 @@ An implementation of `ProvenanceRepositoryPort V0.1` is conformant only if all o
 
 ### PRP-01
 
-All three operations exist with equivalent semantics:
+All three operations exist with the exact V0.1 Application-facing names and equivalent semantics:
 
 ```text
-append_execution_trace
+record_execution_trace
 record_provider_provenance
-record_artifact_lineage
+link_artifact_lineage
 ```
 
 ### PRP-02
@@ -528,7 +536,7 @@ The minimal persistence boundary for Provenance V0.1 is therefore:
                          │
           ┌──────────────┼──────────────┐
           ▼              ▼              ▼
- append execution   record provider   record artifact
+ record execution   record provider   link artifact
      trace            provenance        lineage
           │              │              │
           └──────────────┼──────────────┘
@@ -542,4 +550,4 @@ Its authority is limited to **recording technical execution evidence**.
 
 > **It records what happened; it does not decide what is allowed to happen.**
 
-This is the final V0.1 persistence contract for the Provenance Application Service, subject to its own conformance check before implementation.
+This is the **LOCKED V0.1 persistence contract** for the Provenance Application Service. Any future change requires an explicit contract revision and a new conformance check before implementation.
