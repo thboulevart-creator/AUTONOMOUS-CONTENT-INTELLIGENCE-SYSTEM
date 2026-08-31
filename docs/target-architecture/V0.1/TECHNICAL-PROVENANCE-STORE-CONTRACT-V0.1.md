@@ -4,7 +4,7 @@
 **Version:** V0.1  
 **Status:** ARCHITECTURAL CONTRACT — NON-LOCKED  
 **Scope:** Technical persistence behind `ProvenanceRepositoryPort V0.1`  
-**Purpose:** Define the smallest technical storage boundary required to persist execution provenance without extending the V0.1 semantic model.
+**Purpose:** Define the smallest concrete technical storage boundary required to persist execution provenance without extending the V0.1 semantic model.
 
 ---
 
@@ -25,26 +25,58 @@ This contract is a **technical storage contract**, not a new semantic model.
 
 ---
 
-## 2. Architectural decision
+## 2. Concrete storage decision
 
-V0.1 has no strict mapping from the three provenance operations to the existing LDS/domain persistence surface.
+V0.1 selects **PostgreSQL in a dedicated technical schema** as the physical Technical Provenance Store.
 
-Therefore the provenance persistence boundary is a **separate technical store** behind the existing `ProvenanceRepositoryPort`.
+The repository already uses PostgreSQL and exposes a shared connection/transaction boundary through `src/persistence/connection.py`. The provenance store therefore reuses the existing database infrastructure without reusing the semantic tables of the LOCKED LDS.
 
-This decision does **not** modify:
+The physical boundary is:
 
-- Information Model V0.1;
-- Operational Specification V0.1;
-- Logical Data Schema V0.1;
-- existing V0.1 domain SQL;
-- Domain gates, policy, entities, or repositories;
-- the locked Application port surface.
+```text
+PostgreSQL database
+│
+├── existing V0.1 domain schema
+│   ├── evidence
+│   ├── content
+│   ├── platform_version
+│   ├── publication
+│   ├── performance
+│   ├── experiment
+│   ├── experiment_arm
+│   ├── learning
+│   ├── learning_provenance
+│   ├── learning_status_history
+│   ├── decision
+│   └── existing domain junctions
+│
+└── technical_provenance
+    ├── execution_trace
+    ├── provider_provenance
+    └── artifact_lineage
+```
 
-The phrase “existing persistence model” in the Python port means that the Application-facing contract does not prescribe a physical database design. It MUST NOT be interpreted as permission to overload an existing LDS table whose semantics do not match technical provenance.
+The technical schema is infrastructure, not part of the V0.1 Logical Data Schema.
+
+### 2.1 Foundation protection
+
+`db/migrations/001_v0.1_foundation.sql` MUST NOT be edited to add provenance tables.
+
+The technical store, when implemented, MUST be introduced through a separate technical migration or equivalent infrastructure provisioning step.
+
+That separate migration is not an amendment to the V0.1 LDS. It MUST NOT alter existing domain tables, constraints, foreign keys, cardinalities, or status vocabularies.
+
+### 2.2 Why PostgreSQL is selected
+
+This choice minimizes infrastructure surface because the real repository already uses PostgreSQL through `src/persistence/connection.py`.
+
+The existing connection helper exposes `get_connection()` and transaction handling, while keeping database details below the Application boundary. The provenance adapter may reuse that infrastructure but owns the technical schema semantics.
+
+The decision therefore avoids introducing a second database technology or an external persistence service solely for V0.1 provenance.
 
 ---
 
-## 3. Boundary
+## 3. Architectural boundary
 
 The only permitted dependency direction is:
 
@@ -55,7 +87,7 @@ ProvenanceRepositoryPort
           ↓
 Technical Provenance Adapter
           ↓
-Technical Provenance Store
+technical_provenance schema
 ```
 
 The Technical Store MUST NOT be a Domain dependency.
@@ -87,11 +119,23 @@ The store MUST NOT become a second semantic/domain database.
 
 ## 5. Minimal storage surfaces
 
-The store has exactly three conceptual record surfaces corresponding 1:1 with the locked port operations.
+The store has exactly three V0.1 record surfaces corresponding 1:1 with the locked port operations:
 
-### 5.1 Execution trace record
+```text
+technical_provenance.execution_trace
+technical_provenance.provider_provenance
+technical_provenance.artifact_lineage
+```
 
-Required information:
+No fourth V0.1 provenance record type is authorized by this contract.
+
+---
+
+## 6. Execution trace record
+
+### 6.1 Required logical fields
+
+The physical record MUST support:
 
 ```text
 execution_id
@@ -102,13 +146,36 @@ output_references
 execution_status
 ```
 
-The record MAY carry additional technical metadata needed for reconstruction, provided that such metadata does not introduce domain semantics.
+The record MAY carry additional technical metadata required for reconstruction, provided that the metadata does not introduce Domain semantics.
 
 `execution_id` identifies one logical technical execution event. It is not a Domain entity identifier.
 
-### 5.2 Provider provenance record
+### 6.2 Semantics
 
-Required information:
+Allowed content:
+
+- application operation identity;
+- execution timestamp;
+- technical input references;
+- technical output references;
+- technical execution outcome;
+- implementation metadata necessary to reconstruct execution.
+
+Forbidden content:
+
+- Domain transition authority;
+- Domain gate replacement;
+- fabricated causality;
+- duplicated Domain entities;
+- business lifecycle state.
+
+---
+
+## 7. Provider provenance record
+
+### 7.1 Required logical fields
+
+The physical record MUST support:
 
 ```text
 execution_reference
@@ -121,7 +188,7 @@ output_reference
 execution_status
 ```
 
-Where technically available, the record MAY also retain:
+Where technically available, it MAY retain:
 
 ```text
 intended_provider
@@ -134,11 +201,36 @@ fallback_reason
 timestamp
 ```
 
-If a provider fallback occurs, the stored information MUST preserve the distinction between intended and actual provider. It MUST NOT rewrite the event as though the intended provider executed it.
+### 7.2 Fallback transparency
 
-### 5.3 Artifact lineage record
+If:
 
-Required information:
+```text
+intended provider = A
+actual provider   = B
+```
+
+the record MUST preserve the distinction. It MUST NOT rewrite the event as though A executed it.
+
+### 7.3 Forbidden semantics
+
+Provider provenance MUST NOT:
+
+- assign experimental treatment;
+- alter experiment assignment;
+- authorize publication;
+- authorize spending;
+- determine Domain policy;
+- establish causal conclusions;
+- create a provider lifecycle.
+
+Provider identity remains technical in V0.1.
+
+---
+
+## 8. Artifact lineage record
+
+### 8.1 Required logical fields
 
 ```text
 parent_reference
@@ -146,15 +238,29 @@ child_reference
 relationship
 ```
 
-The record MAY retain an execution reference as technical metadata where useful, but the Application port does not gain a fourth required argument.
+The record MAY retain an execution reference as technical metadata, but the locked Application port remains exactly the three-argument lineage operation.
+
+### 8.2 Actuality rule
 
 Only actual/observed relationships may be stored.
 
-The store MUST NOT fabricate ancestry because a workflow expects a complete chain.
+The adapter MUST NOT fabricate ancestry because a workflow expects a complete chain.
+
+### 8.3 Domain relationship protection
+
+Existing typed Domain relationships remain authoritative, including:
+
+```text
+Content → Platform Version → Publication
+Experiment → Experiment Arm → Content/Variant
+Learning → provenance sources
+```
+
+Technical lineage MAY reference those objects but MUST NOT replace or reinterpret their typed Domain relationships.
 
 ---
 
-## 6. References to Domain objects
+## 9. Domain references
 
 Technical records MAY contain opaque references to existing Domain identifiers, including identifiers for:
 
@@ -176,7 +282,9 @@ These references:
 - do not create those objects;
 - do not duplicate their semantic payload;
 - do not establish new normative relationships;
-- do not imply that the Technical Store owns their lifecycle.
+- do not give the Technical Store lifecycle ownership.
+
+The technical schema MUST NOT introduce SQL foreign keys into the existing Domain schema solely for these references.
 
 Preferred representation:
 
@@ -184,7 +292,7 @@ Preferred representation:
 technical record
       │
       ├── opaque domain reference
-      └── technical execution metadata
+      └── technical metadata
 ```
 
 Forbidden representation:
@@ -197,17 +305,15 @@ copy of Domain object
 competing semantic authority
 ```
 
-If a future requirement needs a relationship to become normative, that requirement MUST be handled through the appropriate Information Model / LDS versioning process rather than by silently upgrading a technical reference.
-
 ---
 
-## 7. Append-only evidence rule
+## 10. Append-only evidence rule
 
 Technical provenance records are execution evidence.
 
-The Technical Store MUST preserve the original evidence and MUST NOT silently rewrite historical execution facts.
+The Technical Store MUST preserve original evidence and MUST NOT silently rewrite historical execution facts.
 
-The minimal V0.1 surface therefore provides no generic:
+The V0.1 Application surface therefore provides no generic:
 
 ```text
 update
@@ -216,84 +322,42 @@ update
 
 operation.
 
-If a future implementation requires correction, the correction mechanism MUST preserve the original evidence and MUST be specified separately before it is added to the contract.
+If a future implementation requires correction, the correction mechanism MUST preserve the original evidence and MUST be specified separately before being added to the contract.
 
-Append-only does not create a Domain lifecycle. Technical records have no Domain status machine.
+Append-only evidence does not create a Domain lifecycle.
 
 ---
 
-## 8. No technical status machine
+## 11. Technical status boundary
 
-Technical execution status is descriptive metadata only.
-
-The store MUST NOT define or expose a lifecycle equivalent to:
+The store may record descriptive execution outcomes such as:
 
 ```text
-Experiment lifecycle
-Learning lifecycle
-Publication lifecycle
-Domain entity lifecycle
+success
+failed
+partial
+fallback
 ```
 
-A value such as `success`, `failed`, `partial`, or `fallback` describes the technical execution event. It MUST NOT be interpreted as a Domain state transition.
+These are technical facts only.
 
-No technical execution status may:
-
-- close an Experiment;
-- promote Learning;
-- authorize Publication;
-- change a Domain status;
-- override a Domain Gate;
-- establish causality.
-
----
-
-## 9. Provider boundary
-
-The Technical Store may retain provider/model/version information for reproducibility and auditability.
-
-Provider identity remains technical in V0.1.
-
-The store MUST NOT create a normative `Provider` entity, provider lifecycle, provider policy, or provider authority.
-
-Provider metadata MUST NOT be used by the Technical Store to select experimental treatment, authorize publication, or make Domain decisions.
-
-If provider information later becomes a normative experimental variable or a required Domain decision input, that is a future architectural decision requiring the appropriate normative contract revision. It MUST NOT be introduced implicitly through the technical store.
-
----
-
-## 10. Lineage boundary
-
-Artifact lineage in this store means **technical production lineage**.
-
-Examples include:
+They MUST NOT become or mirror lifecycle states for:
 
 ```text
-input → generated
-source → transformed
-intermediate → assembled
-artifact → final_artifact
+Experiment
+Learning
+Publication
+Content
+Decision
 ```
 
-The store MUST NOT reinterpret existing typed Domain relationships as generic lineage merely for convenience.
-
-In particular, existing relationships such as:
-
-```text
-Content → Platform Version → Publication → Performance
-Experiment → Experiment Arm → Content/Variant
-Learning → provenance sources
-```
-
-remain Domain/LDS relationships and retain their existing semantics.
-
-Technical lineage may reference those objects but does not replace their typed relationships.
+No technical status may close an Experiment, promote Learning, authorize Publication, change Domain status, override a Domain Gate, or establish causality.
 
 ---
 
-## 11. Domain protection rules
+## 12. Domain and LOCKED protection
 
-The Technical Store and its adapter MUST NOT:
+The Technical Store and adapter MUST NOT:
 
 - create Domain entities;
 - update Domain entities;
@@ -309,13 +373,13 @@ The Technical Store and its adapter MUST NOT:
 - infer causal conclusions;
 - act as a source of truth for Domain state.
 
-`ExperimentClosureGate` remains the authority for Experiment closure. Performance append-only semantics remain governed by the Domain/LDS/SQL boundary.
+`ExperimentClosureGate` remains the authority for Experiment closure. Performance append-only semantics remain governed by the existing Domain/LDS/SQL boundary.
 
 ---
 
-## 12. Information Model protection
+## 13. Information Model protection
 
-The store MUST NOT introduce first-class V0.1 Information Model objects named or semantically equivalent to:
+The Technical Store MUST NOT introduce first-class V0.1 Information Model objects named or semantically equivalent to:
 
 ```text
 ExecutionTrace
@@ -325,15 +389,13 @@ ArtifactLineage
 TechnicalArtifact
 ```
 
-The names above identify technical record concepts for this persistence contract; they do not amend the Information Model.
-
-Process records, operational classifications, and provenance metadata remain technical/operational information as permitted by the locked Information Model and Operational Specification.
+These names identify technical record surfaces only; they do not amend the Information Model.
 
 No generic Context, Model, Policy, Goal, Constraint, Resource, or other forbidden first-class object may be introduced through this store.
 
 ---
 
-## 13. Logical Data Schema protection
+## 14. Logical Data Schema protection
 
 The Technical Store is outside the V0.1 LDS.
 
@@ -348,19 +410,17 @@ It MUST NOT:
 
 The current LDS/domain SQL remains authoritative for Domain state.
 
-A separate technical store schema MAY be introduced later, but it is an infrastructure artifact governed by this contract rather than a modification of the V0.1 LDS.
-
 ---
 
-## 14. Mapping to the locked Application port
+## 15. Mapping to the locked Application port
 
 The mapping is exactly:
 
 | Port operation | Technical Store surface | Result |
 |---|---|---|
-| `record_execution_trace(event)` | execution trace record | `TraceReference` |
-| `record_provider_provenance(execution_reference, provider_metadata)` | provider provenance record | `ProviderProvenanceReference` |
-| `link_artifact_lineage(parent_reference, child_reference, relationship)` | artifact lineage record | `LineageReference` |
+| `record_execution_trace(event)` | `technical_provenance.execution_trace` | `TraceReference` |
+| `record_provider_provenance(execution_reference, provider_metadata)` | `technical_provenance.provider_provenance` | `ProviderProvenanceReference` |
+| `link_artifact_lineage(parent_reference, child_reference, relationship)` | `technical_provenance.artifact_lineage` | `LineageReference` |
 
 No fourth persistence operation is introduced.
 
@@ -370,7 +430,7 @@ No generic update/delete API is exposed.
 
 ---
 
-## 15. Failure isolation
+## 16. Failure isolation
 
 Technical persistence failure is distinct from Domain or provider outcome.
 
@@ -396,19 +456,19 @@ The Application layer decides whether a provenance failure is fatal, retryable, 
 
 ---
 
-## 16. Idempotency and duplicate protection
+## 17. Idempotency and duplicate protection
 
 `execution_id` MUST be stable for one logical execution event.
 
-The Technical Store MAY enforce uniqueness for that technical identifier to prevent accidental duplicate records.
+The Technical Store SHOULD enforce uniqueness for that technical identifier where practical.
 
 Provider provenance is associated with `execution_reference`; it MUST NOT create a competing execution identity.
 
-The exact physical uniqueness/indexing mechanism is an implementation concern and is not a new Domain invariant.
+Lineage duplicate handling MAY use a technical uniqueness rule appropriate to the store, but that rule is not a Domain invariant.
 
 ---
 
-## 17. Query boundary
+## 18. Query boundary
 
 V0.1 does not authorize a business query surface over the Technical Store.
 
@@ -416,148 +476,181 @@ The store MUST NOT become a hidden read model for Domain decisions.
 
 If a future Application use case requires querying technical provenance, the required query surface MUST be specified explicitly and checked against the Domain/LOCKED boundaries before addition.
 
-The absence of a V0.1 query API is deliberate.
+---
+
+## 19. Physical schema contract
+
+The concrete physical schema boundary is fixed for V0.1 as:
+
+```text
+schema: technical_provenance
+
+relations:
+  execution_trace
+  provider_provenance
+  artifact_lineage
+```
+
+The physical implementation MUST be PostgreSQL-compatible and MUST preserve the logical fields and boundaries defined in sections 6–18.
+
+### 19.1 Required physical isolation
+
+The technical relations MUST be distinct from the existing LDS relations.
+
+They MUST NOT be added to or merged with:
+
+```text
+content
+platform_version
+publication
+performance
+experiment
+experiment_arm
+learning
+learning_provenance
+learning_status_history
+decision
+```
+
+### 19.2 Required migration isolation
+
+The technical schema MUST be provisioned through a migration/artifact separate from `001_v0.1_foundation.sql`.
+
+The existing foundation migration remains immutable for this purpose.
+
+### 19.3 Foreign-key policy
+
+No foreign key from the technical schema to Domain tables is required or authorized merely to represent an opaque technical reference.
+
+The technical store therefore cannot impose new Domain cardinality or lifecycle constraints.
+
+### 19.4 Physical naming
+
+The names above are the V0.1 technical storage names. They are infrastructure names and do not constitute new Information Model entity names.
 
 ---
 
-## 18. Physical implementation freedom
-
-The contract does not prescribe:
-
-- PostgreSQL versus another technical persistence technology;
-- table names;
-- ORM;
-- serialization library;
-- indexing strategy;
-- partitioning;
-- connection management;
-- migration tooling.
-
-Any implementation choice is permitted only if it preserves this contract.
-
-A technical store MAY use a separate database/schema/tables/filesystem/object store or equivalent infrastructure boundary, provided that it remains outside the semantic LDS and does not leak implementation details through the Application port.
-
----
-
-## 19. Conformance requirements
+## 20. Conformance requirements
 
 An implementation conforms to this contract only if all requirements below hold.
 
-### TPS-01 — Three-surface minimum
+### TPS-01 — PostgreSQL technical boundary
+
+The implementation uses the dedicated `technical_provenance` PostgreSQL schema or a mechanically equivalent isolated PostgreSQL namespace preserving the same boundary.
+
+### TPS-02 — Three-surface minimum
 
 Exactly the three V0.1 provenance capabilities are supported: execution trace, provider provenance, and artifact lineage.
 
-### TPS-02 — Port alignment
+### TPS-03 — Port alignment
 
 Each surface maps 1:1 to the corresponding locked `ProvenanceRepositoryPort` operation.
 
-### TPS-03 — Technical-only semantics
+### TPS-04 — Technical-only semantics
 
 Stored records describe technical execution evidence and do not become Domain state.
 
-### TPS-04 — No Domain mutation
+### TPS-05 — No Domain mutation
 
 The store and adapter cannot mutate Domain entities or Domain status.
 
-### TPS-05 — No new semantic entities
+### TPS-06 — No new semantic entities
 
 No new first-class Information Model entity is introduced.
 
-### TPS-06 — No LDS mutation
+### TPS-07 — No LDS mutation
 
 The V0.1 Logical Data Schema and its physical foundation remain unchanged.
 
-### TPS-07 — No semantic repurposing
+### TPS-08 — No semantic repurposing
 
 Existing Domain tables and relations are not reused when doing so changes their meaning.
 
-### TPS-08 — Actual lineage only
+### TPS-09 — Actual lineage only
 
 Lineage records observed relationships only; no fabricated ancestry.
 
-### TPS-09 — Provider transparency
+### TPS-10 — Provider transparency
 
 Provider substitution remains distinguishable between intended and actual provider where fallback occurs.
 
-### TPS-10 — Evidence preservation
+### TPS-11 — Evidence preservation
 
 Historical technical records are not silently rewritten.
 
-### TPS-11 — Failure isolation
+### TPS-12 — Failure isolation
 
 Technical persistence failures remain distinguishable from Domain/provider outcomes.
 
-### TPS-12 — No Domain query authority
+### TPS-13 — No Domain query authority
 
 The store is not a source of truth for Domain decisions and exposes no V0.1 business-query API.
 
-### TPS-13 — Opaque references
+### TPS-14 — Opaque references
 
 References to Domain objects are identifiers only; Domain payloads are not duplicated as semantic copies.
 
-### TPS-14 — No technical lifecycle
+### TPS-15 — No technical lifecycle
 
 Technical execution status is descriptive metadata, not a Domain lifecycle.
 
-### TPS-15 — No port expansion
+### TPS-16 — Foundation isolation
+
+`db/migrations/001_v0.1_foundation.sql` is not modified to provide technical provenance.
+
+### TPS-17 — No port expansion
 
 No additional Application persistence method is required by this contract.
 
 ---
 
-## 20. Explicit non-responsibilities
-
-The Technical Store is NOT responsible for:
-
-```text
-Domain validation
-Domain Gate evaluation
-Experiment assignment
-Experiment closure
-Learning promotion
-Publication authorization
-Provider selection
-Quality policy
-Economic policy
-Performance interpretation
-Causal inference
-Decision making
-```
-
-Those responsibilities remain with their existing architectural authorities.
-
----
-
 ## 21. Implementation gate
 
-This contract does **not** by itself authorize implementation.
-
-The required sequence is:
+This contract permits the following sequence only after the store contract conformance check passes:
 
 ```text
 TECHNICAL PROVENANCE STORE CONTRACT V0.1
               ↓
-CONFORMANCE CHECK
+STORE CONTRACT CONFORMANCE CHECK
               ↓
 [PASS]
               ↓
-TECHNICAL STORE / ADAPTER DESIGN
+TECHNICAL PROVENANCE MIGRATION
+              ↓
+ADAPTER IMPLEMENTATION
               ↓
 ADAPTER CONFORMANCE
               ↓
 PROVENANCE SERVICE
 ```
 
-If the conformance check identifies a contradiction with a LOCKED contract, implementation MUST stop and the contradiction must be resolved before proceeding.
+If the conformance check identifies a contradiction with a LOCKED contract or with the real repository boundary, implementation MUST stop and the contradiction must be resolved first.
 
 ---
 
-## 22. Final architectural statement
+## 22. Final decision
 
-The V0.1 Technical Provenance Store exists to preserve technical evidence of execution without creating a second semantic model.
+The concrete V0.1 storage strategy is therefore:
 
-Its authority is deliberately narrow:
+```text
+Existing PostgreSQL infrastructure
+            ↓
+     technical_provenance
+            │
+     ┌──────┼──────┐
+     ▼      ▼      ▼
+ execution provider lineage
+   trace   provenance
+     │      │      │
+     └──────┼──────┘
+            ▼
+    Provenance Adapter
+            ▼
+ ProvenanceRepositoryPort
+```
 
-> **It stores technical facts about what happened; it does not decide what the system was allowed to do.**
+The Technical Provenance Store is deliberately isolated from the semantic model.
 
-Any future expansion that would make provenance normative, queryable for Domain decisions, or semantically authoritative requires a new architectural decision and the appropriate normative contract revision before implementation.
+> **It stores technical evidence of what happened; it does not become authority over what the system was allowed to do.**
+
+Any future expansion of its semantics, query authority, lifecycle, or normative relationships requires a new architectural decision and conformance review before implementation.
