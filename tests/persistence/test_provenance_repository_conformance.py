@@ -33,7 +33,14 @@ def install_cursor(monkeypatch, cursor):
 
 
 def test_adapter_satisfies_port_shape():
-    assert isinstance(ProvenanceRepository(FakeConnection()), ProvenanceRepositoryPort)
+    repo = ProvenanceRepository(FakeConnection())
+    required = (
+        "record_execution_trace",
+        "record_provider_provenance",
+        "link_artifact_lineage",
+    )
+    assert all(callable(getattr(repo, name, None)) for name in required)
+    assert all(name in ProvenanceRepositoryPort.__dict__ for name in required)
 
 
 def test_record_execution_trace_maps_only_technical_store(monkeypatch):
